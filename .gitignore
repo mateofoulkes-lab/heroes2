@@ -2,3 +2,9 @@ node_modules/
 tmp/
 .DS_Store
 *.log
+# Local Gauntlet/Playwright evidence (generated, never committed)
+artifacts/baseline/
+artifacts/challenger/
+artifacts/comparisons/
+playwright-report/
+test-results/
