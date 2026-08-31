@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Heroes II Asset Lab</title><link rel="icon" href="data:,"><link rel="stylesheet" href="lab.css"></head>
+<body><header><div><p class="eyebrow">Museo visual · Asset Lock</p><h1>Asset Lab</h1><p>Inspección de strips, recortes, pivotes y estados semánticos.</p></div><a href="/">← Volver al juego</a></header>
+<main><aside><label>Criatura <select id="unit"></select></label><label>Estado <select id="state"></select></label><label>Escala <select id="scale"><option>1</option><option selected>2</option><option>3</option></select></label><label><input id="flip" type="checkbox"> Mirar a la izquierda</label><div class="buttons"><button id="previous">◀ Cuadro</button><button id="play">Pausa</button><button id="next">Cuadro ▶</button></div><dl id="metadata"></dl></aside>
+<section><h2>Animación</h2><div class="stages"><div class="stage light"><canvas id="light"></canvas></div><div class="stage dark"><canvas id="dark"></canvas></div><div class="stage battle"><canvas id="battle"></canvas></div></div><h2>Spritesheet original derivado</h2><div class="sheet"><img id="sheet" alt="Spritesheet seleccionado"></div><h2>Frames recortados</h2><div id="frames" class="frames"></div></section></main>
+<script type="module" src="lab.js"></script></body></html>

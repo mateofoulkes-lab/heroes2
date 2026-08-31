@@ -1,7 +1,13 @@
 const { chromium } = require("playwright");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 (async () => {
-  const browser = await chromium.launch();
+  const systemChrome = ["/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find(fs.existsSync);
+  const browser = await chromium.launch(systemChrome ? { executablePath: systemChrome } : {});
+  const outputDirectory = path.join(os.tmpdir(), "heroes2-gauntlet", "playwright");
+  fs.mkdirSync(outputDirectory, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1365, height: 820 } });
   const messages = [];
   page.on("console", (msg) => messages.push(`${msg.type()}: ${msg.text()}`));
@@ -23,12 +29,12 @@ const { chromium } = require("playwright");
       height: canvas.height,
     };
   });
-  await page.screenshot({ path: "tmp/visual-adventure.png", fullPage: true });
+  await page.screenshot({ path: path.join(outputDirectory, "visual-adventure.png"), fullPage: true });
   await page.click("#openCastle");
   await page.waitForTimeout(300);
-  await page.screenshot({ path: "tmp/visual-castle.png", fullPage: true });
+  await page.screenshot({ path: path.join(outputDirectory, "visual-castle.png"), fullPage: true });
   await browser.close();
   console.log(JSON.stringify({ stats, messages }, null, 2));
-  if (messages.some((m) => m.includes("pageerror"))) process.exit(1);
+  if (messages.some((m) => m.startsWith("error:") || m.startsWith("pageerror:"))) process.exit(1);
   if (stats.nonBlank < 1000) process.exit(1);
 })();
