@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Heroes II Web Gauntlet</title>
+    <meta name="description" content="Clon privado inspirado en Heroes of Might and Magic II, jugable en navegador.">
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body>
+    <main class="shell" aria-label="Heroes II Web Gauntlet">
+      <section class="game-frame">
+        <div class="topbar">
+          <div class="brand">
+            <span class="crest" aria-hidden="true"></span>
+            <div>
+              <h1>Heroes II Web Gauntlet</h1>
+              <p id="objective">Recluta tropas, explora el mapa y vence a los guardianes.</p>
+            </div>
+          </div>
+          <div id="resources" class="resources" aria-label="Recursos"></div>
+        </div>
+
+        <div class="play-surface">
+          <div class="canvas-wrap">
+            <canvas id="game" width="960" height="640" aria-label="Mapa y batalla del juego"></canvas>
+            <div id="screenBadge" class="screen-badge">Aventura</div>
+          </div>
+
+          <aside class="side-panel">
+            <div class="hero-card">
+              <canvas id="portrait" width="101" height="93" aria-label="Retrato del heroe"></canvas>
+              <div>
+                <h2>Sir Gallant</h2>
+                <p id="heroStats">Ataque 3 | Defensa 2 | Poder 1</p>
+              </div>
+            </div>
+
+            <div class="army" id="army"></div>
+
+            <div class="actions">
+              <button id="endTurn" type="button">Fin del dia</button>
+              <button id="openCastle" type="button">Castillo</button>
+              <button id="waitBattle" type="button">Esperar</button>
+              <button id="resetGame" type="button">Nueva partida</button>
+            </div>
+
+            <div class="log" id="log" aria-live="polite"></div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="src/game.js"></script>
+  </body>
+</html>

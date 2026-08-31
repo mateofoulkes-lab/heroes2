@@ -1,0 +1,10 @@
+{
+  "name": "heroes2-web-gauntlet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.cjs",
+    "smoke": "node tests/smoke.cjs"
+  }
+}
