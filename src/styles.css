@@ -266,6 +266,23 @@ h1 {
   transform: translateY(1px);
 }
 
+.asset-lab-link {
+  display: block;
+  padding: 9px 12px;
+  border: 2px ridge #d9b85f;
+  color: #ffe9a4;
+  background: #3b210f;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.asset-lab-link:hover,
+.asset-lab-link:focus-visible {
+  background: #5b3518;
+  outline: 2px solid #ffe9a4;
+}
+
 .log {
   min-height: 0;
   overflow: auto;
