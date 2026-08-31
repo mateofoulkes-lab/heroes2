@@ -43,6 +43,7 @@ const unit = (id, width, height, count, provenance, options = {}) => {
       idle: fallbackClip("idle", { duration: options.duration ?? 140 }),
       move: fallbackClip("move", { duration: options.moveDuration ?? 110 }),
       attack: fallbackClip("attack", { duration: options.attackDuration ?? 90, loop: false }),
+      ranged: fallbackClip("ranged", { duration: options.attackDuration ?? 90, loop: false }),
       hit: fallbackClip("hit", { duration: options.hitDuration ?? 120, loop: false }),
       death: fallbackClip("death", {
         duration: options.deathDuration ?? 150,
@@ -50,7 +51,7 @@ const unit = (id, width, height, count, provenance, options = {}) => {
         order: frames.map((_, index) => index),
       }),
     }),
-    missingStates: Object.freeze(SEMANTIC_STATES.filter((state) => !["idle", "move", "attack", "hit", "death"].includes(state))),
+    missingStates: Object.freeze(SEMANTIC_STATES.filter((state) => !["idle", "move", "attack", "ranged", "hit", "death"].includes(state))),
     provenance,
   });
 };

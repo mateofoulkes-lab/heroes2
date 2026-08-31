@@ -100,3 +100,25 @@ test("casualties preserve top creature HP and victory reports persistent survivo
     survivors: [{ id: "champion", side: "player", count: 2, currentHp: 10 }],
   });
 });
+
+test("a killed queued stack is skipped before the next turn", () => {
+  const battle = createBattle([
+    stack("champion", "player", 0, 0, { count: 10, damage: { min: 20, max: 20 }, speed: 8 }),
+    stack("victim", "enemy", 1, 0, { count: 1, maxHp: 1, speed: 6 }),
+    stack("reserve", "enemy", 3, 0, { speed: 2 }),
+  ]);
+  attackStack(battle, "champion", "victim", { roll: 0 });
+  assert.equal(battle.activeId, "reserve");
+  assert.equal(battle.queue.includes("victim"), false);
+});
+
+test("initial stacks must be inside an unblocked board cell", () => {
+  assert.throws(() => createBattle([
+    stack("outside", "player", 9, 0),
+    stack("enemy", "enemy", 1, 0),
+  ], { width: 4, height: 4 }), /outside the board/);
+  assert.throws(() => createBattle([
+    stack("blocked", "player", 0, 0),
+    stack("enemy", "enemy", 1, 0),
+  ], { width: 4, height: 4, blocked: [{ q: 0, r: 0 }] }), /blocked cell/);
+});

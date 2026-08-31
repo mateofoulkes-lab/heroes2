@@ -1,4 +1,4 @@
-import { hexDistance, hexKey, reachableHexes, sameHex } from "./hex.js";
+import { hexDistance, hexKey, isInside, reachableHexes, sameHex } from "./hex.js";
 
 const DEFAULT_BOARD = Object.freeze({ width: 11, height: 9, blocked: [] });
 
@@ -31,17 +31,21 @@ export function createBattle(stacks, board = DEFAULT_BOARD) {
   const ids = new Set();
   const cells = new Set();
   const normalized = stacks.map(copyStack);
+  const normalizedBoard = { ...DEFAULT_BOARD, ...board, blocked: [...(board.blocked ?? [])] };
+  const blocked = new Set(normalizedBoard.blocked.map(hexKey));
   for (const stack of normalized) {
     if (!stack.id || ids.has(stack.id)) throw new Error("Every stack needs a unique id");
     if (!stack.side) throw new Error(`Stack ${stack.id} needs a side`);
     if (stack.count < 1) throw new Error(`Stack ${stack.id} must contain creatures`);
     const cell = hexKey(stack.position);
+    if (!isInside(normalizedBoard, stack.position)) throw new Error(`Stack ${stack.id} is outside the board`);
+    if (blocked.has(cell)) throw new Error(`Stack ${stack.id} is on a blocked cell`);
     if (cells.has(cell)) throw new Error(`Cell ${cell} is occupied twice`);
     ids.add(stack.id);
     cells.add(cell);
   }
   const battle = {
-    board: { ...DEFAULT_BOARD, ...board, blocked: [...(board.blocked ?? [])] },
+    board: normalizedBoard,
     stacks: normalized,
     round: 0,
     phase: "initiative",
@@ -79,6 +83,8 @@ export function startRound(battle) {
 
 function advanceTurn(battle) {
   battle.queue.shift();
+  const livingIds = new Set(livingStacks(battle).map(({ id }) => id));
+  battle.queue = battle.queue.filter((id) => livingIds.has(id));
   if (!battle.queue.length && battle.phase === "initiative") {
     battle.phase = "waiting";
     battle.queue = livingStacks(battle)

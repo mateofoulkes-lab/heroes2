@@ -1,4 +1,15 @@
 import { ASSETS } from "./asset-manifest.js";
+import { CREATURE_CATALOG } from "./assets/animation-catalog.js";
+import {
+  attackStack,
+  battleOutcome,
+  createBattle,
+  defendStack,
+  hexDistance,
+  moveStack,
+  reachableForStack,
+  waitStack,
+} from "./battle/index.js";
 
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
@@ -29,13 +40,16 @@ const terrainTiles = {
 };
 
 const creatureStats = {
-  peasant: { name: "Peasants", hp: 1, dmg: 1, sprite: "peasant", cost: 20 },
-  archer: { name: "Archers", hp: 2, dmg: 2, sprite: "archer", cost: 80, ranged: true },
-  paladin: { name: "Paladins", hp: 10, dmg: 7, sprite: "paladin", cost: 500 },
-  skeleton: { name: "Skeletons", hp: 3, dmg: 2, sprite: "skeleton" },
-  goblin: { name: "Goblins", hp: 2, dmg: 2, sprite: "goblin" },
-  dragon: { name: "Red Dragons", hp: 25, dmg: 14, sprite: "dragon" },
+  peasant: { name: "Peasants", hp: 1, dmg: 1, sprite: "peasant", cost: 20, speed: 3 },
+  archer: { name: "Archers", hp: 2, dmg: 2, sprite: "archer", cost: 80, ranged: true, speed: 4, shots: 12 },
+  paladin: { name: "Paladins", hp: 10, dmg: 7, sprite: "paladin", cost: 500, speed: 5 },
+  skeleton: { name: "Skeletons", hp: 3, dmg: 2, sprite: "skeleton", speed: 4 },
+  goblin: { name: "Goblins", hp: 2, dmg: 2, sprite: "goblin", speed: 3 },
+  dragon: { name: "Red Dragons", hp: 25, dmg: 14, sprite: "dragon", speed: 7 },
 };
+
+const BATTLE_BOARD = Object.freeze({ width: 9, height: 7, blocked: [] });
+const BATTLE_ACTION_TICKS = 32;
 
 const resourceDefs = {
   gold: ["G", "Oro"],
@@ -43,6 +57,12 @@ const resourceDefs = {
   ore: ["O", "Piedra"],
   gems: ["J", "Gemas"],
 };
+
+// Runtime crops from the overworld sheet already shipped on main. These replace
+// provisional geometry without introducing derived image files.
+const overworldObjectCrops = Object.freeze({
+  ore: Object.freeze({ x: 256, y: 128, width: 32, height: 32 }),
+});
 
 let images = {};
 let logicalW = 960;
@@ -269,6 +289,7 @@ function drawAdventure() {
   }
 
   drawCastle(cam);
+  drawAdventurePath(cam);
   state.objects.forEach((obj) => drawObject(obj, cam));
   drawHero(cam);
   drawMiniMap();
@@ -330,6 +351,11 @@ function drawMine(x, y, res, owner) {
 }
 
 function drawResourcePile(x, y, res) {
+  const crop = overworldObjectCrops[res];
+  if (crop) {
+    ctx.drawImage(images.overworld, crop.x, crop.y, crop.width, crop.height, x - 22, y - 24, 44, 44);
+    return;
+  }
   ctx.fillStyle = res === "gold" ? "#f6cf42" : res === "wood" ? "#85501f" : res === "ore" ? "#aaa59a" : "#39d3ff";
   for (let i = 0; i < 4; i += 1) {
     ctx.beginPath();
@@ -338,6 +364,26 @@ function drawResourcePile(x, y, res) {
     ctx.strokeStyle = "#2a1508";
     ctx.stroke();
   }
+}
+
+function drawAdventurePath(cam) {
+  if (!state.path.length) return;
+  let x = state.hero.x;
+  let y = state.hero.y;
+  state.path.forEach(([dx, dy], index) => {
+    x += dx;
+    y += dy;
+    const point = worldToScreen(x, y, cam);
+    const cx = point.x + TILE / 2;
+    const cy = point.y + TILE / 2;
+    ctx.fillStyle = index === state.path.length - 1 ? "rgba(255, 230, 92, 0.72)" : "rgba(255, 247, 181, 0.52)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, index === state.path.length - 1 ? 11 : 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#4b270c";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
 }
 
 function drawChest(x, y) {
@@ -464,25 +510,118 @@ function endTurn() {
   updateUI();
 }
 
+function stackFromArmy(slot, index) {
+  const def = creatureStats[slot.type];
+  return {
+    id: `p-${index}`,
+    armyIndex: index,
+    side: "player",
+    type: slot.type,
+    count: slot.count,
+    maxHp: def.hp,
+    currentHp: def.hp,
+    attack: state.hero.attack,
+    defense: state.hero.defense,
+    damage: { min: def.dmg, max: def.dmg },
+    speed: def.speed,
+    ranged: Boolean(def.ranged),
+    shots: def.shots ?? 0,
+    position: { q: 1, r: 1 + index * 2 },
+  };
+}
+
 function startBattle(obj) {
+  const players = state.army
+    .map(stackFromArmy)
+    .filter((stack) => stack.count > 0)
+    .slice(0, 3);
+  const enemyDef = creatureStats[obj.enemy];
+  const enemy = {
+    id: "e-0",
+    side: "enemy",
+    type: obj.enemy,
+    count: obj.count,
+    maxHp: enemyDef.hp,
+    currentHp: enemyDef.hp,
+    attack: 2,
+    defense: 2,
+    damage: { min: enemyDef.dmg, max: enemyDef.dmg },
+    speed: enemyDef.speed,
+    ranged: Boolean(enemyDef.ranged),
+    shots: enemyDef.shots ?? 0,
+    position: { q: 7, r: 3 },
+  };
+  const engine = createBattle([...players, enemy], BATTLE_BOARD);
   state.screen = "battle";
   state.battle = {
     source: obj,
-    player: state.army.filter((slot) => slot.count > 0).map((slot, i) => ({ ...slot, side: "player", index: i, hpLeft: slot.count * creatureStats[slot.type].hp })),
-    enemy: [{ type: obj.enemy, count: obj.count, side: "enemy", hpLeft: obj.count * creatureStats[obj.enemy].hp }],
-    turn: "player",
-    selected: 0,
-    message: "Elige un enemigo para atacar.",
-    flash: 0,
+    engine,
+    message: "Selecciona una celda resaltada o un enemigo.",
+    visual: { animations: {}, movement: null, locked: false, finishAt: null },
+    cells: [],
   };
-  addLog(`Te enfrentas a ${obj.count} ${creatureStats[obj.enemy].name}.`, "Batalla");
+  for (const stack of engine.stacks) setStackAnimation(stack.id, "idle");
+  addLog(`Te enfrentas a ${obj.count} ${enemyDef.name}.`, "Batalla");
   updateUI();
+  scheduleComputerTurn();
+}
+
+function setStackAnimation(id, name, duration = BATTLE_ACTION_TICKS) {
+  const b = state.battle;
+  if (!b) return;
+  b.visual.animations[id] = { name, startedAt: anim, duration };
+}
+
+function stackAnimation(stack) {
+  const visual = state.battle?.visual.animations[stack.id];
+  if (stack.count <= 0) return { name: "death", startedAt: visual?.startedAt ?? anim - BATTLE_ACTION_TICKS, duration: Infinity };
+  if (!visual) return { name: "idle", startedAt: anim, duration: Infinity };
+  if (visual.name !== "idle" && anim - visual.startedAt >= visual.duration) {
+    setStackAnimation(stack.id, "idle", Infinity);
+    return state.battle.visual.animations[stack.id];
+  }
+  return visual;
+}
+
+function battleGeometry() {
+  const cellW = Math.min(82, logicalW / 10);
+  const cellH = Math.min(70, logicalH / 8);
+  return {
+    cellW,
+    cellH,
+    ox: (logicalW - cellW * 9.5) / 2,
+    oy: (logicalH - cellH * 7) / 2,
+  };
+}
+
+function battleCellCenter(hex, geometry = battleGeometry()) {
+  return {
+    x: geometry.ox + hex.q * geometry.cellW + geometry.cellW / 2 + (hex.r % 2) * geometry.cellW / 2,
+    y: geometry.oy + hex.r * geometry.cellH + geometry.cellH / 2,
+  };
+}
+
+function currentStackPosition(stack) {
+  const movement = state.battle?.visual.movement;
+  if (!movement || movement.id !== stack.id) return battleCellCenter(stack.position);
+  const progress = Math.min(1, (anim - movement.startedAt) / movement.duration);
+  const eased = 1 - (1 - progress) ** 2;
+  const from = battleCellCenter(movement.from);
+  const to = battleCellCenter(movement.to);
+  if (progress >= 1) {
+    state.battle.visual.movement = null;
+    state.battle.visual.locked = false;
+    setStackAnimation(stack.id, "idle", Infinity);
+    scheduleComputerTurn();
+    return to;
+  }
+  return { x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased };
 }
 
 function drawBattle() {
-  badgeEl.textContent = "Batalla";
-  objectiveEl.textContent = state.battle.message;
   const b = state.battle;
+  badgeEl.textContent = `Batalla · Ronda ${b.engine.round}`;
+  objectiveEl.textContent = b.message;
   ctx.fillStyle = "#1d3c28";
   ctx.fillRect(0, 0, logicalW, logicalH);
   for (let y = 0; y < logicalH; y += TILE) {
@@ -492,129 +631,260 @@ function drawBattle() {
     }
   }
 
-  const cellW = Math.min(82, logicalW / 10);
-  const cellH = Math.min(70, logicalH / 8);
-  const ox = (logicalW - cellW * 9) / 2;
-  const oy = (logicalH - cellH * 7) / 2;
-  ctx.strokeStyle = "rgba(255, 232, 153, 0.35)";
-  ctx.lineWidth = 2;
-  for (let y = 0; y < 7; y += 1) {
-    for (let x = 0; x < 9; x += 1) {
-      drawHex(ox + x * cellW + cellW / 2, oy + y * cellH + cellH / 2, cellW * 0.46, cellH * 0.42);
+  const geometry = battleGeometry();
+  const active = b.engine.stacks.find((stack) => stack.id === b.engine.activeId);
+  const reachable = active && active.side === "player" && !b.visual.locked
+    ? new Set(reachableForStack(b.engine, active.id).map(({ q, r }) => `${q},${r}`))
+    : new Set();
+  b.cells = [];
+  for (let r = 0; r < BATTLE_BOARD.height; r += 1) {
+    for (let q = 0; q < BATTLE_BOARD.width; q += 1) {
+      const hex = { q, r };
+      const center = battleCellCenter(hex, geometry);
+      b.cells.push({ ...hex, ...center });
+      if (reachable.has(`${q},${r}`) && (q !== active.position.q || r !== active.position.r)) {
+        ctx.fillStyle = "rgba(85, 190, 91, 0.3)";
+        fillHex(center.x, center.y, geometry.cellW * 0.46, geometry.cellH * 0.42);
+      }
+      ctx.strokeStyle = active?.position.q === q && active?.position.r === r ? "#fff18a" : "rgba(255, 232, 153, 0.42)";
+      ctx.lineWidth = active?.position.q === q && active?.position.r === r ? 4 : 2;
+      drawHex(center.x, center.y, geometry.cellW * 0.46, geometry.cellH * 0.42);
     }
   }
 
-  b.player.forEach((unit, i) => {
-    unit.bx = ox + cellW * 1.2;
-    unit.by = oy + cellH * (1.5 + i * 1.5);
-    drawBattleUnit(unit, unit.bx, unit.by, false);
-  });
-  b.enemy.forEach((unit, i) => {
-    unit.bx = ox + cellW * 7.6;
-    unit.by = oy + cellH * (2.8 + i * 1.3);
-    drawBattleUnit(unit, unit.bx, unit.by, true);
-  });
+  for (const stack of b.engine.stacks) {
+    const point = currentStackPosition(stack);
+    drawBattleUnit(stack, point.x, point.y, stack.side === "enemy", stack.id === b.engine.activeId);
+  }
 
-  ctx.fillStyle = "rgba(38, 19, 7, 0.86)";
+  drawInitiativeBar(b);
+  ctx.fillStyle = "rgba(38, 19, 7, 0.9)";
   ctx.fillRect(20, logicalH - 64, logicalW - 40, 44);
   ctx.strokeStyle = "#f3ce67";
   ctx.strokeRect(20.5, logicalH - 64.5, logicalW - 41, 45);
   ctx.fillStyle = "#ffe9a4";
-  ctx.font = "bold 18px Georgia";
+  ctx.font = "bold 17px Georgia";
   ctx.textAlign = "left";
   ctx.fillText(b.message, 36, logicalH - 36);
+  processBattleTimeline();
 }
 
-function drawHex(x, y, rx, ry) {
+function hexPath(x, y, rx, ry) {
   ctx.beginPath();
   for (let i = 0; i < 6; i += 1) {
-    const a = Math.PI / 6 + (Math.PI * 2 * i) / 6;
-    const px = x + Math.cos(a) * rx;
-    const py = y + Math.sin(a) * ry;
+    const angle = Math.PI / 6 + (Math.PI * 2 * i) / 6;
+    const px = x + Math.cos(angle) * rx;
+    const py = y + Math.sin(angle) * ry;
     if (i === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
   }
   ctx.closePath();
+}
+
+function drawHex(x, y, rx, ry) {
+  hexPath(x, y, rx, ry);
   ctx.stroke();
 }
 
-function drawBattleUnit(unit, x, y, flip) {
-  const def = creatureStats[unit.type];
-  const frame = Math.floor(anim / 10);
-  const scale = unit.type === "dragon" ? 0.82 : 0.9;
-  ctx.fillStyle = "rgba(0,0,0,0.38)";
+function fillHex(x, y, rx, ry) {
+  hexPath(x, y, rx, ry);
+  ctx.fill();
+}
+
+function semanticFrame(stack, animationState) {
+  const catalog = CREATURE_CATALOG[stack.type];
+  const clip = catalog?.animations[animationState.name] ?? catalog?.animations.idle;
+  if (!clip) return 0;
+  const elapsedMs = Math.max(0, anim - animationState.startedAt) * 16;
+  const total = clip.duration.reduce((sum, duration) => sum + duration, 0);
+  const time = clip.loop ? elapsedMs % total : Math.min(elapsedMs, total - 1);
+  let cursor = 0;
+  for (let i = 0; i < clip.order.length; i += 1) {
+    cursor += clip.duration[i];
+    if (time < cursor) return clip.order[i];
+  }
+  return clip.order.at(-1);
+}
+
+function drawBattleUnit(stack, x, y, flip, active) {
+  const def = creatureStats[stack.type];
+  const animationState = stackAnimation(stack);
+  const frame = semanticFrame(stack, animationState);
+  const scale = stack.type === "dragon" ? 0.82 : 0.9;
+  ctx.globalAlpha = stack.count <= 0 ? 0.72 : 1;
+  ctx.fillStyle = active ? "rgba(255,235,112,0.55)" : "rgba(0,0,0,0.38)";
   ctx.beginPath();
-  ctx.ellipse(x, y + 8, unit.type === "dragon" ? 50 : 34, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + 8, stack.type === "dragon" ? 50 : 34, active ? 16 : 12, 0, 0, Math.PI * 2);
   ctx.fill();
   drawUnitFrame(ctx, def.sprite, frame, x, y + 8, scale, flip);
-  drawBadge(x + 32, y - 14, unit.count);
-  const hpMax = unit.count * def.hp;
-  const hpRatio = Math.max(0, unit.hpLeft / hpMax);
-  ctx.fillStyle = "#260b07";
-  ctx.fillRect(x - 36, y + 22, 72, 7);
-  ctx.fillStyle = hpRatio > 0.45 ? "#48c458" : "#d5462f";
-  ctx.fillRect(x - 35, y + 23, 70 * hpRatio, 5);
+  ctx.globalAlpha = 1;
+  if (stack.count > 0) {
+    drawBadge(x + 32, y - 14, stack.count);
+    const totalHp = (stack.count - 1) * stack.maxHp + stack.currentHp;
+    const hpRatio = Math.max(0, Math.min(1, totalHp / Math.max(stack.maxHp, stack.count * stack.maxHp)));
+    ctx.fillStyle = "#260b07";
+    ctx.fillRect(x - 36, y + 22, 72, 7);
+    ctx.fillStyle = hpRatio > 0.45 ? "#48c458" : "#d5462f";
+    ctx.fillRect(x - 35, y + 23, 70 * hpRatio, 5);
+    if (stack.ranged) {
+      ctx.fillStyle = "#fff0b5";
+      ctx.font = "bold 11px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(`🏹 ${stack.shots}`, x, y + 42);
+    }
+  }
 }
 
-function playerAttack(enemyIndex = 0) {
+function drawInitiativeBar(battle) {
+  const labels = battle.engine.queue
+    .map((id) => battle.engine.stacks.find((stack) => stack.id === id))
+    .filter(Boolean);
+  ctx.fillStyle = "rgba(28, 13, 5, 0.88)";
+  ctx.fillRect(18, 14, Math.min(logicalW - 36, 126 + labels.length * 88), 42);
+  ctx.fillStyle = "#f6d77b";
+  ctx.font = "bold 13px Georgia";
+  ctx.textAlign = "left";
+  ctx.fillText("Orden:", 30, 40);
+  labels.forEach((stack, index) => {
+    ctx.fillStyle = index === 0 ? "#fff18a" : stack.side === "player" ? "#9dd7ff" : "#ff9c87";
+    ctx.fillText(`${creatureStats[stack.type].name} ${stack.count}`, 86 + index * 88, 40);
+  });
+}
+
+function nearestBattleCell(x, y) {
+  return state.battle.cells.reduce((best, cell) => {
+    const distance = Math.hypot(x - cell.x, y - cell.y);
+    return !best || distance < best.distance ? { cell, distance } : best;
+  }, null);
+}
+
+function battleAttack(attacker, defender) {
   const b = state.battle;
-  if (!b || b.turn !== "player") return;
-  const attacker = b.player.find((unit) => unit.count > 0);
-  const target = b.enemy[enemyIndex];
-  if (!attacker || !target) return;
-  applyDamage(attacker, target, state.hero.attack);
-  b.message = `${creatureStats[attacker.type].name} atacan a ${creatureStats[target.type].name}.`;
-  if (target.count <= 0) {
-    winBattle();
+  const previousDefenderCount = defender.count;
+  const previousAttackerCount = attacker.count;
+  try {
+    const result = attackStack(b.engine, attacker.id, defender.id, { roll: 0.5 });
+    const ranged = b.engine.log.at(-(result.retaliation ? 2 : 1))?.type === "ranged";
+    setStackAnimation(attacker.id, ranged ? "ranged" : "attack");
+    setStackAnimation(defender.id, defender.count <= 0 ? "death" : "hit");
+    if (result.retaliation) setStackAnimation(attacker.id, attacker.count <= 0 ? "death" : "hit");
+    const losses = previousDefenderCount - defender.count;
+    const retaliationLosses = previousAttackerCount - attacker.count;
+    b.message = `${creatureStats[attacker.type].name}: ${result.damage} daño, ${losses} bajas${result.retaliation ? ` · represalia: ${retaliationLosses}` : ""}.`;
+    b.visual.locked = true;
+    setTimeout(() => {
+      if (!state.battle) return;
+      state.battle.visual.locked = false;
+      scheduleComputerTurn();
+    }, 520);
+    if (b.engine.winner) {
+      const dead = b.engine.stacks.filter((stack) => stack.count <= 0);
+      const deathTicks = Math.max(...dead.map((stack) => {
+        const clip = CREATURE_CATALOG[stack.type]?.animations.death;
+        return clip ? Math.ceil(clip.duration.reduce((sum, duration) => sum + duration, 0) / 16) : BATTLE_ACTION_TICKS;
+      }), BATTLE_ACTION_TICKS);
+      b.visual.finishAt = anim + deathTicks + 12;
+    }
+    updateUI();
+  } catch (error) {
+    b.message = error.message === "Melee attacks require adjacency"
+      ? "La unidad melee debe moverse a una celda adyacente antes de atacar."
+      : error.message;
+  }
+}
+
+function battleMove(stack, destination) {
+  const b = state.battle;
+  const from = { ...stack.position };
+  try {
+    moveStack(b.engine, stack.id, destination);
+    b.visual.movement = { id: stack.id, from, to: { ...destination }, startedAt: anim, duration: 28 };
+    b.visual.locked = true;
+    setStackAnimation(stack.id, "move", 28);
+    b.message = `${creatureStats[stack.type].name} avanzan ${hexDistance(from, destination)} celdas.`;
+  } catch (error) {
+    b.message = error.message;
+  }
+}
+
+function handleBattleClick(x, y) {
+  const b = state.battle;
+  if (!b || b.visual.locked || b.engine.winner) return;
+  const active = b.engine.stacks.find((stack) => stack.id === b.engine.activeId);
+  if (!active || active.side !== "player") return;
+  const nearest = nearestBattleCell(x, y);
+  if (!nearest || nearest.distance > 50) return;
+  const target = b.engine.stacks.find((stack) => stack.count > 0 && stack.position.q === nearest.cell.q && stack.position.r === nearest.cell.r);
+  if (target?.side === "enemy") battleAttack(active, target);
+  else if (!target) battleMove(active, nearest.cell);
+}
+
+function scheduleComputerTurn() {
+  const b = state.battle;
+  if (!b || b.visual.locked || b.engine.winner) return;
+  const active = b.engine.stacks.find((stack) => stack.id === b.engine.activeId);
+  if (!active || active.side !== "enemy") return;
+  b.visual.locked = true;
+  b.message = `${creatureStats[active.type].name} están decidiendo…`;
+  setTimeout(() => runComputerTurn(active.id), 420);
+}
+
+function runComputerTurn(id) {
+  const b = state.battle;
+  if (!b || b.engine.activeId !== id || b.engine.winner) return;
+  b.visual.locked = false;
+  const active = b.engine.stacks.find((stack) => stack.id === id);
+  const enemies = b.engine.stacks.filter((stack) => stack.side === "player" && stack.count > 0);
+  const target = enemies.sort((a, c) => hexDistance(active.position, a.position) - hexDistance(active.position, c.position))[0];
+  if (!target) return;
+  const distance = hexDistance(active.position, target.position);
+  if ((active.ranged && active.shots > 0) || distance === 1) {
+    battleAttack(active, target);
     return;
   }
-  b.turn = "enemy";
-  setTimeout(enemyTurn, 650);
-}
-
-function enemyTurn() {
-  const b = state.battle;
-  if (!b || b.turn !== "enemy") return;
-  const attacker = b.enemy.find((unit) => unit.count > 0);
-  const target = b.player.find((unit) => unit.count > 0);
-  if (!attacker || !target) return;
-  applyDamage(attacker, target, -state.hero.defense);
-  b.message = `${creatureStats[attacker.type].name} contraatacan.`;
-  syncArmyFromBattle();
-  if (!b.player.some((unit) => unit.count > 0)) {
-    b.message = "Tu ejercito fue derrotado. Reinicia para probar otra ruta.";
-    addLog("Derrota en combate. Necesitas mas tropas.", "Derrota");
-    return;
+  const options = reachableForStack(b.engine, active.id)
+    .filter((hex) => hex.distance > 0)
+    .sort((a, c) => hexDistance(a, target.position) - hexDistance(c, target.position));
+  if (options.length) battleMove(active, options[0]);
+  else {
+    defendStack(b.engine, active.id);
+    setStackAnimation(active.id, "idle");
+    b.message = `${creatureStats[active.type].name} defienden.`;
+    scheduleComputerTurn();
   }
-  b.turn = "player";
 }
 
-function applyDamage(attacker, target, modifier) {
-  const a = creatureStats[attacker.type];
-  const t = creatureStats[target.type];
-  const raw = Math.max(1, attacker.count * a.dmg + modifier);
-  const damage = Math.max(1, Math.round(raw * (0.85 + ((anim % 7) / 20))));
-  target.hpLeft = Math.max(0, target.hpLeft - damage);
-  target.count = Math.ceil(target.hpLeft / t.hp);
-}
-
-function syncArmyFromBattle() {
+function syncArmyFromTacticalBattle() {
   const b = state.battle;
-  for (const battleSlot of b.player) {
-    const armySlot = state.army[battleSlot.index];
-    if (armySlot) armySlot.count = Math.max(0, battleSlot.count);
+  if (!b) return;
+  const outcome = battleOutcome(b.engine);
+  for (const participant of b.engine.stacks.filter((stack) => stack.side === "player")) {
+    if (state.army[participant.armyIndex]) state.army[participant.armyIndex].count = 0;
+  }
+  for (const survivor of outcome.survivors.filter((stack) => stack.side === "player")) {
+    const source = b.engine.stacks.find((stack) => stack.id === survivor.id);
+    if (source && state.army[source.armyIndex]) state.army[source.armyIndex].count = survivor.count;
   }
   updateUI();
 }
 
-function winBattle() {
+function processBattleTimeline() {
   const b = state.battle;
-  syncArmyFromBattle();
-  state.resources.gold += b.source.reward;
-  state.objects = state.objects.filter((obj) => obj !== b.source);
-  addLog(`Victoria. Botin: ${b.source.reward} de oro.`, "Victoria");
-  state.battle = null;
-  state.screen = "adventure";
+  if (!b?.visual.finishAt || anim < b.visual.finishAt) return;
+  const winner = b.engine.winner;
+  const source = b.source;
+  syncArmyFromTacticalBattle();
+  if (winner === "player") {
+    state.resources.gold += source.reward;
+    state.objects = state.objects.filter((object) => object !== source);
+    addLog(`Victoria táctica. Botín: ${source.reward} de oro.`, "Victoria");
+    state.screen = "adventure";
+    state.battle = null;
+  } else {
+    b.visual.finishAt = null;
+    b.message = "Derrota. No quedan tropas capaces de combatir.";
+    addLog("El ejército fue derrotado.", "Derrota");
+  }
   updateUI();
 }
 
@@ -734,10 +1004,7 @@ function handleCanvasClick(event) {
   mouse = { x, y };
 
   if (state.screen === "battle") {
-    for (let i = 0; i < state.battle.enemy.length; i += 1) {
-      const e = state.battle.enemy[i];
-      if (Math.hypot(x - e.bx, y - e.by) < 70) playerAttack(i);
-    }
+    handleBattleClick(x, y);
     return;
   }
 
@@ -765,7 +1032,7 @@ function handleCanvasClick(event) {
 }
 
 function processPath() {
-  if (state.screen !== "adventure" || !state.path.length || anim % 5 !== 0) return;
+  if (state.screen !== "adventure" || !state.path.length || anim % 8 !== 0) return;
   const [dx, dy] = state.path.shift();
   tryMove(dx, dy);
 }
@@ -775,10 +1042,29 @@ function openCastle() {
 }
 
 function waitBattle() {
-  if (state.screen === "battle" && state.battle?.turn === "player") {
-    state.battle.turn = "enemy";
-    state.battle.message = "Tus tropas esperan una apertura.";
-    setTimeout(enemyTurn, 450);
+  const b = state.battle;
+  const active = b?.engine.stacks.find((stack) => stack.id === b.engine.activeId);
+  if (state.screen !== "battle" || b.visual.locked || active?.side !== "player") return;
+  try {
+    waitStack(b.engine, active.id);
+    b.message = `${creatureStats[active.type].name} esperan y actuarán al final de la ronda.`;
+    scheduleComputerTurn();
+  } catch (error) {
+    b.message = error.message;
+  }
+}
+
+function defendBattle() {
+  const b = state.battle;
+  const active = b?.engine.stacks.find((stack) => stack.id === b.engine.activeId);
+  if (state.screen !== "battle" || b.visual.locked || active?.side !== "player") return;
+  try {
+    defendStack(b.engine, active.id);
+    setStackAnimation(active.id, "idle");
+    b.message = `${creatureStats[active.type].name} defienden: Defensa +3 hasta la próxima ronda.`;
+    scheduleComputerTurn();
+  } catch (error) {
+    b.message = error.message;
   }
 }
 
@@ -795,6 +1081,7 @@ function loop() {
 document.querySelector("#endTurn").addEventListener("click", endTurn);
 document.querySelector("#openCastle").addEventListener("click", openCastle);
 document.querySelector("#waitBattle").addEventListener("click", waitBattle);
+document.querySelector("#defendBattle").addEventListener("click", defendBattle);
 document.querySelector("#resetGame").addEventListener("click", resetGame);
 canvas.addEventListener("click", handleCanvasClick);
 canvas.addEventListener("mousemove", (event) => {
@@ -823,6 +1110,27 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.screen !== "adventure") state.screen = "adventure";
 });
 window.addEventListener("resize", resize);
+
+window.__heroes2Debug = Object.freeze({
+  snapshot() {
+    const battle = state.battle;
+    return structuredClone({
+      screen: state.screen,
+      hero: state.hero,
+      army: state.army,
+      resources: state.resources,
+      objects: state.objects,
+      logicalSize: { width: logicalW, height: logicalH },
+      battle: battle ? {
+        message: battle.message,
+        cells: battle.cells,
+        engine: battle.engine,
+        animations: battle.visual.animations,
+        locked: battle.visual.locked,
+      } : null,
+    });
+  },
+});
 
 seedObjects();
 preload()

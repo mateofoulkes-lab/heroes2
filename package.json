@@ -7,7 +7,7 @@
     "start": "node server.cjs",
     "smoke": "node tests/smoke.cjs",
     "test": "node --test tests/*.test.js",
-    "test:e2e": "node tests/visual-check.cjs",
+    "test:e2e": "node tests/battle-flow.cjs",
     "test:visual": "node tests/visual-check.cjs",
     "lint": "node --check server.cjs && node --check src/game.js && node --check src/assets/animation-catalog.js && node --check src/battle/rules.js"
   },

@@ -18,13 +18,15 @@
 - **Decision:** promoted with that bounded scope. It materially improves inspectability and animation data quality without changing gameplay or remote runtime dependencies; it is not claimed as a visual-fidelity win over an unavailable original capture.
 - **Regression guards:** original source strips unchanged; missing states are explicit, not fabricated; Canvas remains runnable; pixel smoothing remains disabled in the lab.
 
-## Round 2 — extracted tactical rules challenger
+## Round 2 — playable tactical battle
 
 - **Gap:** decorative battle grid without tactical cell rules.
 - **Builder:** Battle Builder, isolated ownership of `src/battle/**`.
 - **Criterion:** deterministic cell occupancy/range, initiative, wait/defend, melee/ranged/retaliation, casualties and outcome must work without Canvas.
-- **Result:** pure rule engine and seven deterministic tests are complete. It is retained as an integration-ready challenger, but **not yet promoted into the playable champion**, because the Canvas adapter is not complete. This avoids degrading the existing playable battle.
+- **Visible challenger:** `game.js` now drives the Canvas from the tactical engine: real stack positions, active initiative, reachable highlights, cell hit-testing, animated movement, melee adjacency, ranged ammunition, retaliation, wait, defend, casualties, terminal death frames, basic enemy turns, and survivor persistence.
+- **Browser evidence:** the deterministic map → battle → map flow is played through Canvas and buttons by `tests/battle-flow.cjs`; local before/after captures live under `/tmp/heroes2-gauntlet/battle-flow/`. It verifies a rejected distant melee attack, a stationary ranged shot with ammunition loss, real wait/defend state, victory reward, neutral removal, survivors, and zero console errors.
+- **Decision:** promoted after the independent battle critic completed the same flow. The spatial interaction and visible feedback materially surpass the fixed-position click-to-attack champion without removing adventure, town, recruitment, or daily economy.
 
 ## Next gap
 
-Integrate the tested battle engine into `game.js` through a narrow adapter, then compare the same grass battle state and promote only after the full playable flow passes.
+Verify original Heroes II frame ranges and battlefield geometry, then improve projectile presentation and move-plus-melee without changing the now-tested spatial flow.

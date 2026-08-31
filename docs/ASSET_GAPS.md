@@ -4,7 +4,7 @@
 
 `src/assets/animation-catalog.js` is the authoritative, testable catalog for the six existing creature strips. It records explicit frame rectangles, order, per-frame duration, looping, anchor, orientation, displacement, impact point, projectile point, provenance, and confidence. `/asset-lab/` renders those fields without depending on the game renderer.
 
-The repository inherited horizontal strips whose extraction notes do not identify semantic boundaries. Required `idle`, `move`, `attack`, `hit`, and `death` clips are declarative runtime Canvas crops of those existing strips and are explicitly marked as fallbacks, not verified semantic locks. `ranged`, `defend`, `victory`, and `turn` remain missing. No derived PNG is generated or committed; a visually plausible frame split must not be promoted to Asset Lock without source evidence.
+The repository inherited horizontal strips whose extraction notes do not identify semantic boundaries. Required `idle`, `move`, `attack`, `ranged`, `hit`, and `death` clips are declarative runtime Canvas crops of those existing strips and are explicitly marked as fallbacks, not verified semantic locks. `defend`, `victory`, and `turn` remain missing. No derived PNG is generated or committed; a visually plausible frame split must not be promoted to Asset Lock without source evidence.
 
 ## Verification queue
 
